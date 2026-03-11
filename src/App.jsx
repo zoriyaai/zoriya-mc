@@ -1,5 +1,63 @@
 import { useState, useEffect, useRef } from "react";
 
+/* ─── SUPABASE CONFIG ────────────────────────────────────────────────────── */
+const SB_URL = "https://tlfyafwlducwgqvxbgll.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRsZnlhZndsZHVjd2dxdnhiZ2xsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3NDUxNDMsImV4cCI6MjA4ODMyMTE0M30.WtYRUgXyh6I_3Ua38LuJElyK8fZWmMDMppa7GyDXgD8";
+const sbFetch = async (table, params="") => {
+  try {
+    const r = await fetch(`${SB_URL}/rest/v1/${table}?${params}`, {headers:{"apikey":SB_KEY,"Authorization":`Bearer ${SB_KEY}`}});
+    return await r.json();
+  } catch { return []; }
+};
+const sbInsert = async (table, data) => {
+  try {
+    await fetch(`${SB_URL}/rest/v1/${table}`, {method:"POST",headers:{"apikey":SB_KEY,"Authorization":`Bearer ${SB_KEY}`,"Content-Type":"application/json","Prefer":"return=minimal"},body:JSON.stringify(data)});
+    return true;
+  } catch { return false; }
+};
+const useLiveData = () => {
+  const [agents, setAgents] = useState([]);
+  const [contracts, setContracts] = useState([]);
+  const [stats, setStats] = useState(null);
+  const [activity, setActivity] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const refresh = async () => {
+    const [ag,co,st,ac] = await Promise.all([
+      sbFetch("agents","select=*&order=last_seen.desc"),
+      sbFetch("contracts","select=*&order=score.desc&limit=100"),
+      sbFetch("stats","select=*&order=recorded_at.desc&limit=1"),
+      sbFetch("activity","select=*&order=created_at.desc&limit=50"),
+    ]);
+    setAgents(Array.isArray(ag)?ag:[]);
+    setContracts(Array.isArray(co)?co:[]);
+    setStats(Array.isArray(st)&&st.length?st[0]:null);
+    setActivity(Array.isArray(ac)?ac:[]);
+    setLoading(false);
+  };
+  useEffect(()=>{ refresh(); const iv=setInterval(refresh,30000); return ()=>clearInterval(iv); },[]);
+  const sendCommand = async (command,target="system") => sbInsert("commands",{command,target,status:"pending"});
+  return { agents, contracts, stats, activity, loading, refresh, sendCommand };
+};
+
+const ZORIYA_PASSWORD = "zoriya2026";
+
+function LoginView({ onLogin }) {
+  const [pw,setPw] = useState("");
+  const [err,setErr] = useState(false);
+  const attempt = () => { if(pw===ZORIYA_PASSWORD){onLogin();}else{setErr(true);setTimeout(()=>setErr(false),2000);} };
+  return (
+    <div style={{ minHeight:"100vh", width:"100vw", background:"#0C0E13", display:"flex", alignItems:"center", justifyContent:"center" }}>
+      <div style={{ width:360, padding:40, borderRadius:20, background:"#111318", border:"1px solid rgba(255,255,255,0.08)" }}>
+        <h1 style={{ fontSize:22, fontWeight:700, color:"#F1F2F4", marginBottom:6 }}>ZORIYA AI</h1>
+        <p style={{ fontSize:12, color:"rgba(241,242,244,0.3)", marginBottom:28 }}>MISSION CONTROL</p>
+        <input type="password" placeholder="Enter access code" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&attempt()} style={{ width:"100%", padding:"10px 14px", borderRadius:10, background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.1)", color:"#F1F2F4", fontSize:14, outline:"none", marginBottom:12, boxSizing:"border-box" }} />
+        {err && <p style={{ fontSize:11, color:"#EF4444", marginBottom:12 }}>ACCESS DENIED</p>}
+        <button onClick={attempt} style={{ width:"100%", padding:12, borderRadius:10, background:"#2563EB", border:"none", color:"#fff", fontSize:14, fontWeight:600, cursor:"pointer" }}>ENTER</button>
+      </div>
+    </div>
+  );
+}
+
 /* ─── DESIGN TOKENS ─────────────────────────────────────────────────────── */
 const T = {
   bg:        "#0C0E13",
@@ -53,50 +111,11 @@ const GLOBAL_CSS = `
 `;
 
 /* ─── DATA ───────────────────────────────────────────────────────────────── */
-const AGENTS = [
-  { id:"zoriya", name:"Zoriya", role:"Chief Operations Agent", status:"online", color:T.blueLight, initials:"ZA",
-    skills:["Orchestration","Memory","Planning","Delegation"],
-    description:"Coordinates all operations. Manages memory, task delegation, and system health across the ZORIYA AI stack.",
-    tasks:8, completedToday:3, activity:"Reviewing system health", x:30, y:40 },
-  { id:"vector", name:"Vector", role:"Contract Intelligence", status:"online", color:T.green, initials:"VC",
-    skills:["Research","Analysis","Scoring","Contracts"],
-    description:"Scans federal databases daily for high-value contract opportunities. Scores, categorizes, and surfaces the best matches.",
-    tasks:4, completedToday:1, activity:"Processing contract batch", x:65, y:35 },
-];
-
-const CONTRACTS = [
-  { id:1, title:"AI Infrastructure Modernization", agency:"Dept. of Defense", value:"$2.4M", score:94, status:"New", date:"2026-03-06", cat:"Technology" },
-  { id:2, title:"Machine Learning Pipeline Development", agency:"NASA", value:"$890K", score:91, status:"New", date:"2026-03-06", cat:"AI/ML" },
-  { id:3, title:"Autonomous Systems Research Program", agency:"DARPA", value:"$5.1M", score:88, status:"Reviewed", date:"2026-03-06", cat:"Research" },
-  { id:4, title:"Data Analytics Platform Modernization", agency:"HHS", value:"$1.2M", score:85, status:"New", date:"2026-03-05", cat:"Data" },
-  { id:5, title:"Cybersecurity AI Integration Suite", agency:"DHS", value:"$3.7M", score:83, status:"New", date:"2026-03-05", cat:"Security" },
-  { id:6, title:"Natural Language Processing Tools", agency:"Library of Congress", value:"$450K", score:79, status:"Reviewed", date:"2026-03-05", cat:"AI/ML" },
-  { id:7, title:"Cloud Migration Services", agency:"GSA", value:"$670K", score:76, status:"New", date:"2026-03-04", cat:"Cloud" },
-  { id:8, title:"Predictive Analytics for Healthcare", agency:"VA", value:"$2.1M", score:74, status:"New", date:"2026-03-04", cat:"Healthcare" },
-];
-
-const TASKS = [
-  { id:1, title:"Set up Vercel deployment pipeline", status:"In Progress", priority:"high", agent:"Zoriya", project:"Infrastructure" },
-  { id:2, title:"Wire Contract Finds to live JSON", status:"Backlog", priority:"high", agent:"Vector", project:"Contract Finds" },
-  { id:3, title:"Add Discord channel integration", status:"Backlog", priority:"medium", agent:"Zoriya", project:"Infrastructure" },
-  { id:4, title:"Build weekly summary report", status:"Backlog", priority:"medium", agent:"Vector", project:"Contract Finds" },
-  { id:5, title:"Memory consolidation cron setup", status:"Done", priority:"low", agent:"Zoriya", project:"Infrastructure" },
-  { id:6, title:"Gateway security audit", status:"Done", priority:"high", agent:"Zoriya", project:"Infrastructure" },
-];
-
 const PROJECTS = [
   { id:1, name:"Mission Control", status:"Active", progress:45, agent:"Zoriya", priority:"high", desc:"Custom dashboard for ZORIYA AI. Real-time visibility across all agents and systems.", tasks:"4/9" },
   { id:2, name:"Contract Intelligence", status:"Active", progress:72, agent:"Vector", priority:"high", desc:"AI-powered contract scanning and scoring engine. Daily runs, categorization, match scoring.", tasks:"7/10" },
   { id:3, name:"Infrastructure Setup", status:"Active", progress:88, agent:"Zoriya", priority:"medium", desc:"Core system infrastructure — gateway, channels, cron jobs, memory, security.", tasks:"11/12" },
   { id:4, name:"Discord Integration", status:"Planning", progress:0, agent:"Zoriya", priority:"medium", desc:"Extend Zoriya to Discord for real-time alerts and command interface.", tasks:"0/6" },
-];
-
-const MEMORY_ENTRIES = [
-  { id:1, date:"2026-03-06", time:"06:12 PM", title:"Vector Contract Scan Complete", body:"27 contracts found. Top match: AI Infrastructure Modernization (DoD, $2.4M, score 94). Categories: Technology, AI/ML, Research, Data, Security, Cloud, Healthcare.", agent:"Vector" },
-  { id:2, date:"2026-03-06", time:"08:00 AM", title:"Morning Brief", body:"System status: all green. 2 agents online. 5 cron jobs scheduled today. Gateway uptime 14d 6h. No anomalies detected.", agent:"Zoriya" },
-  { id:3, date:"2026-03-05", time:"11:00 PM", title:"Memory Consolidation", body:"Daily memory consolidated. 12 new entries archived. Long-term context updated. Token budget optimized.", agent:"Zoriya" },
-  { id:4, date:"2026-03-05", time:"06:01 PM", title:"Vector Contract Scan Complete", body:"19 contracts found. Top match: Cybersecurity AI Integration Suite (DHS, $3.7M, score 83).", agent:"Vector" },
-  { id:5, date:"2026-03-04", time:"08:00 AM", title:"Morning Brief", body:"System restarted after Mac mini update. All services restored. Gateway reconnected. WhatsApp, Telegram, Email active.", agent:"Zoriya" },
 ];
 
 const CRON_JOBS = [
@@ -121,7 +140,8 @@ const statusColor = s => {
   if(["In Progress","scheduled"].includes(s)) return T.blueLight;
   return T.textMuted;
 };
-const agentColor = name => AGENTS.find(a=>a.name===name)?.color ?? T.blueLight;
+const AGENT_COLORS = {zoriya:"#3B82F6",vector:"#10B981"};
+const agentColor = name => AGENT_COLORS[name?.toLowerCase()] ?? "#3B82F6";
 
 function Tag({ children, color = T.blueLight }) {
   return <span style={{ fontSize:10, padding:"2px 8px", borderRadius:20, fontWeight:600, background:color+"18", border:`1px solid ${color}33`, color, letterSpacing:"0.04em", display:"inline-block" }}>{children}</span>;
