@@ -56,7 +56,7 @@ function LoginView({ onLogin }) {
   const [show,setShow] = useState(false);
   const attempt = () => { if(pw===ZORIYA_PASSWORD){onLogin();}else{setErr(true);setTimeout(()=>setErr(false),2000);} };
   return (
-    <div style={{ minHeight:"100vh", background:"#0C0E13", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Outfit,sans-serif" }}>
+    <div style={{ minHeight:"100vh", width:"100vw", background:"#0C0E13", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Outfit,sans-serif", position:"fixed", inset:0 }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;600&family=Outfit:wght@300;400;600;700&display=swap');`}</style>
       <div style={{ width:380, padding:40, borderRadius:20, background:"#111318", border:"1px solid rgba(255,255,255,0.06)", textAlign:"center" }}>
         <div style={{ width:56, height:56, borderRadius:16, background:"rgba(37,99,235,0.15)", border:"1.5px solid rgba(37,99,235,0.3)", display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 20px", fontSize:11, fontWeight:700, color:"#3B82F6", fontFamily:"Geist Mono,monospace" }}>ZAI</div>
