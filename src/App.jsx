@@ -1,5 +1,81 @@
 import { useState, useEffect, useRef } from "react";
 
+/* ─── SUPABASE CONFIG ────────────────────────────────────────────────────── */
+const SB_URL = "https://tlfyafwlducwgqvxbgll.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRsZnlhZndsZHVjd2dxdnhiZ2xsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3NDUxNDMsImV4cCI6MjA4ODMyMTE0M30.WtYRUgXyh6I_3Ua38LuJElyK8fZWmMDMppa7GyDXgD8";
+
+const sbFetch = async (table, params="") => {
+  try {
+    const r = await fetch(SB_URL+"/rest/v1/"+table+params, {
+      headers:{ apikey:SB_KEY, Authorization:"Bearer "+SB_KEY, "Content-Type":"application/json" }
+    });
+    return r.ok ? r.json() : [];
+  } catch { return []; }
+};
+
+const sbInsert = async (table, data) => {
+  try {
+    const r = await fetch(SB_URL+"/rest/v1/"+table, {
+      method:"POST",
+      headers:{ apikey:SB_KEY, Authorization:"Bearer "+SB_KEY, "Content-Type":"application/json", Prefer:"return=minimal" },
+      body: JSON.stringify(data)
+    });
+    return r.ok;
+  } catch { return false; }
+};
+
+const useLiveData = () => {
+  const [agents, setAgents] = useState([]);
+  const [contracts, setContracts] = useState([]);
+  const [stats, setStats] = useState(null);
+  const [activity, setActivity] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const refresh = async () => {
+    const [a,c,s,act] = await Promise.all([
+      sbFetch("agents","?order=name.asc"),
+      sbFetch("contracts","?order=match_pct.desc&limit=50"),
+      sbFetch("stats","?limit=1"),
+      sbFetch("activity","?order=created_at.desc&limit=20"),
+    ]);
+    if(a.length) setAgents(a);
+    if(c.length) setContracts(c);
+    if(s.length) setStats(s[0]);
+    if(act.length) setActivity(act);
+    setLoading(false);
+  };
+  useEffect(()=>{ refresh(); const iv=setInterval(refresh,30000); return ()=>clearInterval(iv); },[]);
+  const sendCommand = async (command,target="system") => sbInsert("commands",{command,target,status:"pending"});
+  return { agents, contracts, stats, activity, loading, refresh, sendCommand };
+};
+
+/* ─── AUTH ───────────────────────────────────────────────────────────────── */
+const ZORIYA_PASSWORD = "zoriya2026";
+function LoginView({ onLogin }) {
+  const [pw,setPw] = useState("");
+  const [err,setErr] = useState(false);
+  const [show,setShow] = useState(false);
+  const attempt = () => { if(pw===ZORIYA_PASSWORD){onLogin();}else{setErr(true);setTimeout(()=>setErr(false),2000);} };
+  return (
+    <div style={{ minHeight:"100vh", background:"#0C0E13", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Outfit,sans-serif" }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;600&family=Outfit:wght@300;400;600;700&display=swap');`}</style>
+      <div style={{ width:380, padding:40, borderRadius:20, background:"#111318", border:"1px solid rgba(255,255,255,0.06)", textAlign:"center" }}>
+        <div style={{ width:56, height:56, borderRadius:16, background:"rgba(37,99,235,0.15)", border:"1.5px solid rgba(37,99,235,0.3)", display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 20px", fontSize:11, fontWeight:700, color:"#3B82F6", fontFamily:"Geist Mono,monospace" }}>ZAI</div>
+        <h1 style={{ fontSize:22, fontWeight:700, color:"#F1F2F4", marginBottom:6 }}>ZORIYA AI</h1>
+        <p style={{ fontSize:12, color:"rgba(241,242,244,0.25)", marginBottom:28, letterSpacing:"0.1em", fontFamily:"Geist Mono,monospace" }}>MISSION CONTROL</p>
+        <div style={{ position:"relative", marginBottom:16 }}>
+          <input type={show?"text":"password"} placeholder="Enter access code" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&attempt()} style={{ width:"100%", padding:"12px 52px 12px 16px", borderRadius:10, background:"rgba(255,255,255,0.04)", border:"1px solid "+(err?"#EF4444":"rgba(255,255,255,0.08)"), color:"#F1F2F4", fontSize:14, outline:"none", fontFamily:"Geist Mono,monospace", letterSpacing:"0.12em" }} />
+          <button onClick={()=>setShow(!show)} style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", color:"rgba(241,242,244,0.3)", cursor:"pointer", fontSize:10 }}>{show?"HIDE":"SHOW"}</button>
+        </div>
+        {err && <p style={{ fontSize:11, color:"#EF4444", marginBottom:12 }}>ACCESS DENIED</p>}
+        <button onClick={attempt} style={{ width:"100%", padding:12, borderRadius:10, background:"#2563EB", border:"none", color:"#fff", fontSize:14, fontWeight:700, cursor:"pointer" }}>ENTER MISSION CONTROL</button>
+        <p style={{ fontSize:10, color:"rgba(241,242,244,0.2)", marginTop:16 }}>ZORIYA AI · Secure Access</p>
+      </div>
+    </div>
+  );
+}
+
+
+
 /* ─── DESIGN TOKENS ─────────────────────────────────────────────────────── */
 const T = {
   bg:        "#0C0E13",
@@ -370,15 +446,33 @@ function TopBar({ active }) {
 
 /* ─── HQ VIEW ────────────────────────────────────────────────────────────── */
 function HQView() {
+  const live = useLiveData();
+  const onlineAgents = live.agents.filter(a=>a.status==="online").length;
+  const contractCount = live.contracts.length;
+  const [cmdSent, setCmdSent] = useState("");
+
+  const triggerVector = async () => {
+    const ok = await live.sendCommand("run_vector","vector");
+    setCmdSent(ok?"Vector scan triggered! Check back in 2 mins.":"Command failed — is the bridge running?");
+    setTimeout(()=>setCmdSent(""),5000);
+  };
+
   return (
     <div style={{ padding:28, animation:"fadeUp .3s ease" }}>
-      <SectionHeader label="ZORIYA AI · LIVE" sub="HQ — Overview" />
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+        <SectionHeader label="ZORIYA AI · LIVE" sub="HQ — Overview" />
+        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+          {cmdSent && <span style={{ fontSize:11, color:T.green, fontFamily:"'Geist Mono',monospace" }}>{cmdSent}</span>}
+          <button onClick={triggerVector} style={{ padding:"8px 14px", borderRadius:8, background:`${T.amber}18`, border:`1px solid ${T.amber}33`, color:T.amber, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"'Geist Mono',monospace", letterSpacing:"0.08em" }}>▶ RUN VECTOR</button>
+          <button onClick={live.refresh} style={{ padding:"8px 14px", borderRadius:8, background:`${T.blue}18`, border:`1px solid ${T.blue}33`, color:T.blueLight, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"'Geist Mono',monospace", letterSpacing:"0.08em" }}>↻ REFRESH</button>
+        </div>
+      </div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:24 }}>
         {[
-          { label:"Agents Online", val:"2", color:T.green },
-          { label:"Tasks This Week", val:TASKS.length, color:T.blueLight },
-          { label:"Contracts Found", val:"27", color:T.amber },
-          { label:"Systems Active", val:"3", color:T.purple },
+          { label:"Agents Online",   val: live.loading?"…":onlineAgents,              color:T.green },
+          { label:"Tasks This Week",  val: live.stats?.tasks_this_week ?? TASKS.length, color:T.blueLight },
+          { label:"Contracts Found",  val: live.loading?"…":contractCount,             color:T.amber },
+          { label:"Systems Active",   val: live.stats?.systems_active ?? 3,             color:T.purple },
         ].map(s=>(
           <Card key={s.label} style={{ padding:"16px 18px" }}>
             <p style={{ fontSize:10, color:T.textMuted, letterSpacing:"0.1em", marginBottom:8, fontFamily:"'Geist Mono', monospace" }}>{s.label.toUpperCase()}</p>
@@ -388,42 +482,41 @@ function HQView() {
       </div>
 
       <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:14, marginBottom:24 }}>
-        {AGENTS.map(a=>(
-          <Card key={a.id} style={{ padding:20 }}>
-            <div style={{ display:"flex", gap:14, marginBottom:14 }}>
-              <AgentAvatar agent={a} size={44} />
-              <div style={{ flex:1 }}>
-                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
-                  <span style={{ fontSize:15, fontWeight:700, color:T.textPrimary }}>{a.name}</span>
-                  <Dot color={a.color} pulse />
+        {(live.agents.length ? live.agents : AGENTS).map((a,i)=>{
+          const isLive = !!live.agents.length;
+          const statusColor = a.status==="online" ? T.green : T.red;
+          return (
+            <Card key={a.id||a.name} style={{ padding:20 }}>
+              <div style={{ display:"flex", gap:14, marginBottom:14 }}>
+                <div style={{ width:44, height:44, borderRadius:12, background:`${statusColor}18`, border:`1.5px solid ${statusColor}44`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:700, color:statusColor, fontFamily:"'Geist Mono',monospace" }}>{(a.name||"A").slice(0,2).toUpperCase()}</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
+                    <span style={{ fontSize:15, fontWeight:700, color:T.textPrimary }}>{a.name}</span>
+                    <Dot color={statusColor} pulse={a.status==="online"} />
+                    <span style={{ fontSize:9, fontFamily:"'Geist Mono',monospace", color:statusColor, letterSpacing:"0.1em" }}>{(a.status||"offline").toUpperCase()}</span>
+                  </div>
+                  <p style={{ fontSize:12, color:T.textSecondary }}>{a.role}</p>
                 </div>
-                <p style={{ fontSize:12, color:T.textSecondary }}>{a.role}</p>
               </div>
-            </div>
-            <p style={{ fontSize:12, color:T.textMuted, lineHeight:1.65, marginBottom:12 }}>{a.description}</p>
-            <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:14 }}>
-              {a.skills.map(s=><Tag key={s} color={a.color}>{s}</Tag>)}
-            </div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, borderTop:`1px solid ${T.border}`, paddingTop:14 }}>
-              <div><p style={{ fontSize:9, color:T.textMuted, letterSpacing:"0.1em", marginBottom:3 }}>OPEN TASKS</p><p style={{ fontSize:18, fontWeight:700, color:T.textPrimary, fontFamily:"'Geist Mono', monospace" }}>{a.tasks}</p></div>
-              <div><p style={{ fontSize:9, color:T.textMuted, letterSpacing:"0.1em", marginBottom:3 }}>DONE TODAY</p><p style={{ fontSize:18, fontWeight:700, color:T.green, fontFamily:"'Geist Mono', monospace" }}>{a.completedToday}</p></div>
-            </div>
-          </Card>
-        ))}
+              {isLive && a.last_seen && <p style={{ fontSize:10, color:T.textMuted, fontFamily:"'Geist Mono',monospace", marginBottom:8 }}>Last seen: {new Date(a.last_seen).toLocaleTimeString()}</p>}
+              {!isLive && <><p style={{ fontSize:12, color:T.textMuted, lineHeight:1.65, marginBottom:12 }}>{a.description}</p><div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:14 }}>{a.skills?.map(s=><Tag key={s} color={a.color}>{s}</Tag>)}</div></>}
+            </Card>
+          );
+        })}
       </div>
 
       <div>
         <p style={{ fontSize:10, color:T.textMuted, letterSpacing:"0.12em", marginBottom:14, fontFamily:"'Geist Mono', monospace" }}>RECENT ACTIVITY</p>
         <Card style={{ padding:0, overflow:"hidden" }}>
-          {MEMORY_ENTRIES.slice(0,4).map((e,i)=>(
-            <div key={e.id} className="row-item" style={{ display:"flex", gap:14, padding:"14px 18px", borderBottom:i<3?`1px solid ${T.border}`:"none" }}>
-              <div style={{ width:7, height:7, borderRadius:"50%", flexShrink:0, marginTop:5, background:agentColor(e.agent), boxShadow:`0 0 6px ${agentColor(e.agent)}` }} />
+          {(live.activity.length ? live.activity : MEMORY_ENTRIES.slice(0,4)).map((e,i,arr)=>(
+            <div key={e.id} className="row-item" style={{ display:"flex", gap:14, padding:"14px 18px", borderBottom:i<arr.length-1?`1px solid ${T.border}`:"none" }}>
+              <div style={{ width:7, height:7, borderRadius:"50%", flexShrink:0, marginTop:5, background:e.type==="error"?T.red:T.green, boxShadow:`0 0 6px ${e.type==="error"?T.red:T.green}` }} />
               <div style={{ flex:1 }}>
                 <div style={{ display:"flex", justifyContent:"space-between", marginBottom:3 }}>
-                  <span style={{ fontSize:13, fontWeight:600, color:T.textPrimary }}>{e.title}</span>
-                  <span style={{ fontSize:11, color:T.textMuted, fontFamily:"'Geist Mono', monospace" }}>{e.time}</span>
+                  <span style={{ fontSize:13, fontWeight:600, color:T.textPrimary }}>{e.title||e.message?.slice(0,60)||"Activity"}</span>
+                  <span style={{ fontSize:11, color:T.textMuted, fontFamily:"'Geist Mono', monospace" }}>{e.time || new Date(e.created_at).toLocaleTimeString()}</span>
                 </div>
-                <p style={{ fontSize:12, color:T.textSecondary, lineHeight:1.5 }}>{e.body.slice(0,110)}…</p>
+                <p style={{ fontSize:12, color:T.textSecondary, lineHeight:1.5 }}>{e.body||e.message||""}</p>
               </div>
             </div>
           ))}
@@ -3461,7 +3554,12 @@ function DocgenView() {
 
 /* ─── APP ────────────────────────────────────────────────────────────────── */
 export default function App() {
-  const [active, setActive] = useState("hq");
+  const [active, setActive]   = useState("hq");
+  const [authed, setAuthed]   = useState(() => sessionStorage.getItem("zmc_auth")==="1");
+  const live = useLiveData();
+
+  const handleLogin = () => { sessionStorage.setItem("zmc_auth","1"); setAuthed(true); };
+  if(!authed) return <LoginView onLogin={handleLogin} />;
   const VIEWS = {
     hq:        <HQView />,
     office:    <VirtualOfficeView />,
